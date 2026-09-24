@@ -19,7 +19,15 @@ import '../protocol/rate_limiter.dart';
 import 'browser_page.dart';
 import 'history_page.dart';
 import 'scan_page.dart';
+import 'widgets/device_picker.dart';
+import 'widgets/log_panel.dart';
+import 'widgets/save_dir_tile.dart';
+import 'widgets/section_card.dart';
+import 'widgets/status_banner.dart';
+import 'widgets/transfer_bottom_bar.dart';
 
+/// 主界面：角色 / 连接 / 保存目录 / 收发控制。
+/// 协议细节在 net/ + protocol/；本页只编排 UI 与生命周期。
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -69,17 +77,67 @@ class _HomePageState extends State<HomePage> {
     unawaited(_startDiscovery());
   }
 
+  Future<String> _defaultSaveDir() async {
+    final docs = await getApplicationDocumentsDirectory();
+    return p.join(docs.path, 'LanTransfer');
+  }
+
   Future<void> _ensureSaveDir() async {
     if (_settings.saveDir.isEmpty) {
-      final docs = await getApplicationDocumentsDirectory();
-      if (!mounted) return;
-      _settings.saveDir = '${docs.path}/LanTransfer';
+      _settings.saveDir = await _defaultSaveDir();
       await _settings.save();
       if (mounted) setState(() {});
     }
     try {
       await Directory(_settings.saveDir).create(recursive: true);
     } catch (_) {}
+  }
+
+  Future<bool> _requestSaveAccess() async {
+    if (!Platform.isAndroid) return true;
+    await Permission.storage.request();
+    if (await Permission.manageExternalStorage.isGranted) return true;
+    final manage = await Permission.manageExternalStorage.request();
+    return manage.isGranted || await Permission.storage.isGranted;
+  }
+
+  Future<void> _applySaveDir(String path) async {
+    final dir = Directory(path);
+    try {
+      await dir.create(recursive: true);
+      final probe = File(p.join(path, '.lant_write_test'));
+      await probe.writeAsString('ok', flush: true);
+      await probe.delete();
+    } catch (e) {
+      _toast('目录不可写: $e');
+      return;
+    }
+    setState(() => _settings.saveDir = path);
+    await _settings.save();
+    _log('保存目录 → $path');
+  }
+
+  Future<void> _pickSaveDir() async {
+    if (_busy && _settings.role == 'receiver') {
+      _toast('接收中不可改目录');
+      return;
+    }
+    await _requestSaveAccess();
+    final path = await FilePicker.getDirectoryPath(
+      dialogTitle: '选择保存目录',
+      initialDirectory:
+          _settings.saveDir.isEmpty ? null : _settings.saveDir,
+    );
+    if (path == null || !mounted) return;
+    await _applySaveDir(path);
+  }
+
+  Future<void> _resetSaveDir() async {
+    if (_busy && _settings.role == 'receiver') {
+      _toast('接收中不可改目录');
+      return;
+    }
+    await _applySaveDir(await _defaultSaveDir());
   }
 
   Future<void> _resolveLocalIp() async {
@@ -168,7 +226,8 @@ class _HomePageState extends State<HomePage> {
     _discovery?.setTcpPort(_settings.port);
 
     if (_settings.role == 'receiver') {
-      await Permission.storage.request();
+      await _requestSaveAccess();
+      await _ensureSaveDir();
       setState(() => _busy = true);
       _receiver = TransferReceiver(
         port: port,
@@ -294,7 +353,7 @@ class _HomePageState extends State<HomePage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _DevicePickerSheet(
+      builder: (ctx) => DevicePickerSheet(
         devices: _devices,
         selectedIp: _targetCtrl.text.trim(),
       ),
@@ -375,9 +434,14 @@ class _HomePageState extends State<HomePage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
               children: [
-                _statusBanner(cs),
+                StatusBanner(
+                  localIp: _localIp,
+                  saveDir: _settings.saveDir,
+                  busy: _busy,
+                  onTapSaveDir: _ready ? _pickSaveDir : null,
+                ),
                 const SizedBox(height: 14),
-                _section(
+                SectionCard(
                   title: '角色',
                   child: SegmentedButton<String>(
                     segments: const [
@@ -404,7 +468,7 @@ class _HomePageState extends State<HomePage> {
                       }),
                   ),
                 ),
-                _section(
+                SectionCard(
                   title: '连接',
                   child: Column(
                     children: [
@@ -437,7 +501,7 @@ class _HomePageState extends State<HomePage> {
                           ),
                           const SizedBox(width: 10),
                           Expanded(
-                            child: _DeviceField(
+                            child: DeviceField(
                               device: _selectedDevice,
                               count: _devices.length,
                               onTap: _ready ? _pickDevice : null,
@@ -448,7 +512,18 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
-                _section(
+                SectionCard(
+                  title: '保存目录',
+                  trailing: TextButton(
+                    onPressed: _ready ? _resetSaveDir : null,
+                    child: const Text('默认'),
+                  ),
+                  child: SaveDirTile(
+                    path: _settings.saveDir,
+                    onTap: _ready ? _pickSaveDir : null,
+                  ),
+                ),
+                SectionCard(
                   title: '选项',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -457,11 +532,11 @@ class _HomePageState extends State<HomePage> {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          _optChip('断点续传', _settings.resume,
+                          OptChip('断点续传', _settings.resume,
                               (v) => _edit(() => _settings.resume = v)),
-                          _optChip('差异同步', _settings.sync,
+                          OptChip('差异同步', _settings.sync,
                               (v) => _edit(() => _settings.sync = v)),
-                          _optChip('校验', _settings.verify,
+                          OptChip('校验', _settings.verify,
                               (v) => _edit(() => _settings.verify = v)),
                           FilterChip(
                             label: Text(_settings.verifyAlgo.toUpperCase()),
@@ -472,7 +547,7 @@ class _HomePageState extends State<HomePage> {
                                   : 'md5';
                             }),
                           ),
-                          _optChip('AES 加密', _settings.encrypt,
+                          OptChip('AES 加密', _settings.encrypt,
                               (v) => _edit(() => _settings.encrypt = v)),
                         ],
                       ),
@@ -523,7 +598,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 if (_settings.role == 'sender')
-                  _section(
+                  SectionCard(
                     title: '发送队列',
                     trailing: Text(
                       '${_queue.length}',
@@ -592,7 +667,7 @@ class _HomePageState extends State<HomePage> {
                       ],
                     ),
                   ),
-                _section(
+                SectionCard(
                   title: 'HTTP 共享',
                   child: Column(
                     children: [
@@ -621,194 +696,25 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
-                _section(
+                SectionCard(
                   title: '日志',
-                  child: _LogPanel(logs: _logs),
+                  child: LogPanel(logs: _logs),
                 ),
               ],
             ),
           ),
-          _bottomBar(cs, receiving),
+          TransferBottomBar(
+            ready: _ready,
+            busy: _busy,
+            receiving: receiving,
+            isReceiver: _settings.role == 'receiver',
+            progress: _progress,
+            ratio: _ratio,
+            onStart: () => unawaited(_start()),
+            onStop: () => unawaited(_stop()),
+          ),
         ],
       ),
-    );
-  }
-
-  Widget _statusBanner(ColorScheme cs) {
-    final save = _settings.saveDir.isEmpty
-        ? '准备中…'
-        : p.basename(_settings.saveDir);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD9E2EC)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(Icons.wifi_tethering_rounded, color: cs.primary),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _localIp,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.3,
-                    color: Color(0xFF102A43),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '保存 · $save',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF627D98),
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          if (_busy)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE3F8E8),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: const Text(
-                '运行中',
-                style: TextStyle(
-                  color: Color(0xFF207A3C),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _bottomBar(ColorScheme cs, bool receiving) {
-    return Material(
-      elevation: 8,
-      color: Colors.white,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_progress.isNotEmpty) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: _ratio,
-                    minHeight: 6,
-                    backgroundColor: const Color(0xFFE8EEF5),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _progress,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF334E68),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton(
-                      onPressed: !_ready || receiving ? null : _start,
-                      child: Text(
-                        _settings.role == 'receiver' ? '开始接收' : '开始发送',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _busy ? _stop : null,
-                      child: const Text('停止'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _section({
-    required String title,
-    required Widget child,
-    Widget? trailing,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFD9E2EC)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF486581),
-                    letterSpacing: 0.2,
-                  ),
-                ),
-                const Spacer(),
-                ?trailing,
-              ],
-            ),
-            const SizedBox(height: 10),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _optChip(String label, bool selected, ValueChanged<bool> onSelected) {
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: onSelected,
     );
   }
 
@@ -816,307 +722,5 @@ class _HomePageState extends State<HomePage> {
     final base = p.basename(path);
     final dot = base.lastIndexOf('.');
     return dot > 0 && dot < base.length - 1;
-  }
-}
-
-class _LogPanel extends StatelessWidget {
-  const _LogPanel({required this.logs});
-  final ValueNotifier<List<String>> logs;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 200,
-      decoration: BoxDecoration(
-        color: const Color(0xFF102A43),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: ValueListenableBuilder<List<String>>(
-        valueListenable: logs,
-        builder: (context, list, _) {
-          if (list.isEmpty) {
-            return const Center(
-              child: Text(
-                '等待操作…',
-                style: TextStyle(color: Color(0xFF9FB3C8), fontSize: 13),
-              ),
-            );
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            itemCount: list.length,
-            itemBuilder: (_, i) {
-              final line = list[list.length - 1 - i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Text(
-                  line,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11.5,
-                    height: 1.35,
-                    color: Color(0xFFD9E2EC),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _DeviceField extends StatelessWidget {
-  const _DeviceField({
-    required this.device,
-    required this.count,
-    required this.onTap,
-  });
-
-  final DiscoveredDevice? device;
-  final int count;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final label = device == null
-        ? (count == 0 ? '点击发现后选择' : '已发现 $count 台 · 点选')
-        : device!.name;
-    final sub = device == null ? null : '${device!.ip}:${device!.tcpPort}';
-
-    return Material(
-      color: const Color(0xFFF5F7FA),
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFD9E2EC)),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.devices_rounded, size: 18, color: cs.primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF102A43),
-                      ),
-                    ),
-                    if (sub != null)
-                      Text(
-                        sub,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF627D98),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.keyboard_arrow_down_rounded,
-                color: onTap == null
-                    ? const Color(0xFF9FB3C8)
-                    : const Color(0xFF486581),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DevicePickerSheet extends StatelessWidget {
-  const _DevicePickerSheet({
-    required this.devices,
-    required this.selectedIp,
-  });
-
-  final List<DiscoveredDevice> devices;
-  final String selectedIp;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final maxH = MediaQuery.sizeOf(context).height * 0.72;
-
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: Material(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          clipBehavior: Clip.antiAlias,
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 10),
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD9E2EC),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        '选择设备',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: cs.onSurface,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: cs.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          '${devices.length}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: cs.primary,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: '关闭',
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, color: Color(0xFFE8EEF5)),
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                    itemCount: devices.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 6),
-                    itemBuilder: (ctx, i) {
-                      final d = devices[i];
-                      final selected = d.ip == selectedIp;
-                      return Material(
-                        color: selected
-                            ? cs.primary.withValues(alpha: 0.08)
-                            : const Color(0xFFF5F7FA),
-                        borderRadius: BorderRadius.circular(14),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(14),
-                          onTap: () => Navigator.pop(ctx, d),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? cs.primary.withValues(alpha: 0.18)
-                                        : Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: selected
-                                          ? cs.primary.withValues(alpha: 0.35)
-                                          : const Color(0xFFD9E2EC),
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    Icons.computer_rounded,
-                                    size: 20,
-                                    color: selected
-                                        ? cs.primary
-                                        : const Color(0xFF486581),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        d.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF102A43),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '${d.ip}:${d.tcpPort}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF627D98),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (selected)
-                                  Icon(
-                                    Icons.check_circle_rounded,
-                                    color: cs.primary,
-                                  )
-                                else
-                                  const Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: Color(0xFF9FB3C8),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }

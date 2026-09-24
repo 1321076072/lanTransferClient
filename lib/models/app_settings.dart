@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants.dart';
 
+/// 本地偏好：角色、端口、目标 IP、保存目录、传输选项。
 class AppSettings {
   String role = 'receiver'; // receiver | sender
   int port = defaultPort;

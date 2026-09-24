@@ -13,15 +13,20 @@ import '../protocol/header.dart';
 import '../protocol/io_util.dart';
 import '../protocol/rate_limiter.dart';
 
+/// 日志回调。
 typedef LogFn = void Function(String msg);
+
+/// 进度回调：文件名、已传、总量、MB/s。
 typedef ProgressFn = void Function(String name, int done, int total, double mbps);
 
+/// 去掉路径穿越，只保留最后一段文件名。
 String safeBasename(String? name) {
   var n = (name ?? 'unknown').replaceAll('\\', '/').split('/').last.trim();
   if (n.isEmpty || n == '.' || n == '..') return 'unknown';
   return n;
 }
 
+/// [base]/[name]，拒绝跳出 base 的路径。
 String safeJoin(String base, String name) {
   final baseAbs = p.normalize(Directory(base).absolute.path);
   final pathAbs = p.normalize(p.join(baseAbs, safeBasename(name)));
@@ -34,6 +39,7 @@ String safeJoin(String base, String name) {
 
 enum _Result { ok, fail, skipped }
 
+/// LANT2024 TCP 接收端：听端口、写 [saveDir]、可选续传/校验/解密。
 class TransferReceiver {
   TransferReceiver({
     required this.port,

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../constants.dart';
 import 'io_util.dart';
 
+/// 协议 JSON meta + magic/长度头读写。
 class ProtocolMeta {
   ProtocolMeta({
     required this.name,

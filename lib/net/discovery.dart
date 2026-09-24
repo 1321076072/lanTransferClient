@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../constants.dart';
 
+/// 局域网设备发现结果。
 class DiscoveredDevice {
   DiscoveredDevice({
     required this.ip,
@@ -19,7 +20,8 @@ class DiscoveredDevice {
   final DateTime lastSeen;
 }
 
-/// Android 走原生 UDP；其它平台保留纯 Dart 实现见同文件下半无需——Android-only 客户端。
+/// UDP 发现：Android 走原生 [NativeDiscovery]（DatagramSocket + MulticastLock）。
+/// 非 Android 直接失败——当前客户端定位就是 Android。
 class DeviceDiscovery {
   DeviceDiscovery({
     this.tcpPort = defaultPort,

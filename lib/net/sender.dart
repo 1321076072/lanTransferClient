@@ -13,6 +13,7 @@ import '../protocol/io_util.dart';
 import '../protocol/rate_limiter.dart';
 import 'receiver.dart' show LogFn, ProgressFn;
 
+/// LANT2024 TCP 发送端：连 [targetIp]:[port]，顺序发 [queue]。
 class TransferSender {
   TransferSender({
     required this.targetIp,

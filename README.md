@@ -2,6 +2,21 @@
 
 对等实现 `lan_transfer_gui_v7.py` 的 **LANT2024** 协议核心。
 
+## 目录
+
+```
+lib/
+  constants.dart     协议/发现常量
+  main.dart          入口与主题
+  models/            设置、传输历史
+  protocol/          帧头、AES、校验、限速、IO
+  net/               发现、接收、发送
+  http_share/        HTTP 共享扫码浏览
+  ui/                页面
+    widgets/         无状态控件（卡片、设备选择、日志等）
+android/             Android 工程（含 NativeDiscovery UDP）
+```
+
 ## 已实现
 
 - 接收 / 发送（TCP，`LANT2024` + JSON meta）
@@ -9,6 +24,7 @@
 - AES-CBC（PBKDF2-HMAC-SHA256，100000 次，与 PC 一致）
 - 文件夹 zip 打包/解压
 - UDP 设备发现（固定 `5100`，`LANT_DISCOVER_v8`；双方需同版本）
+- 可改保存目录（持久化）
 - 限速、传输历史、日志与进度
 - HTTP 共享伴侣：扫码 + 目录浏览下载
 

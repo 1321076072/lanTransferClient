@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'ui/home_page.dart';
 
+/// 应用入口：主题 + [HomePage]。
 const _seed = Color(0xFF0B6BCB);
 
 void main() {

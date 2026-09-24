@@ -1,6 +1,16 @@
+/// 协议与发现常量 —— 必须与 PC `lan_transfer_gui_v7.py` 字节级一致。
+///
+/// 目录职责（lib/）：
+/// - `protocol/`  TCP 帧、AES、哈希签名、限速、IO
+/// - `net/`       发现 / 接收 / 发送
+/// - `models/`    设置与历史持久化
+/// - `http_share/` PC HTTP 共享伴侣客户端
+/// - `ui/`        页面；`ui/widgets/` 无状态可复用控件
+library;
+
 import 'dart:typed_data';
 
-/// LANT2024 — 必须与 PC 端传输协议字节级一致。
+/// LANT2024 — TCP 传输 magic。
 const String magicHeaderStr = 'LANT2024';
 final Uint8List magicHeader = Uint8List.fromList(magicHeaderStr.codeUnits);
 
