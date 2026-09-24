@@ -28,7 +28,7 @@ const Duration discoverInterval = Duration(seconds: 3);
 const Duration discoverTtl = Duration(seconds: 12);
 
 const int defaultPort = 5000;
-const int chunkSize = 65536;
+const int chunkSize = 256 * 1024; // 与桌面端对齐，降低 syscall / 写盘次数
 const int skipOffset = 0xFFFFFFFFFFFFFFFF; // (1<<64)-1
 
 const int pbkdf2Iterations = 100000;

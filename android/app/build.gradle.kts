@@ -49,7 +49,7 @@ android {
         }
     }
 
-    buildTypes {-
+    buildTypes {
         release {
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")

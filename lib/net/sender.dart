@@ -118,6 +118,7 @@ class TransferSender {
           log('📋 名称: $sendName (${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB)');
 
           sock = await Socket.connect(targetIp, port, timeout: const Duration(seconds: 30));
+          sock.setOption(SocketOption.tcpNoDelay, true);
           await sendProtocolHeader(
             sock,
             ptype,
@@ -180,6 +181,14 @@ class TransferSender {
                 }
               }
               await sock.flush();
+              // 同上：循环末尾不足 0.5s 时也要推到 100%。
+              if (fileSize > 0) {
+                final dt =
+                    DateTime.now().difference(lastLog).inMilliseconds / 1000.0;
+                final speed =
+                    dt > 0 ? (sent - lastSent) / dt / 1024 / 1024 : 0.0;
+                onProgress?.call(sendName, sent, fileSize, speed);
+              }
             } finally {
               await raf.close();
             }

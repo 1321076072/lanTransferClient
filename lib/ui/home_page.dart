@@ -292,10 +292,11 @@ class _HomePageState extends State<HomePage> {
 
   void _onProgress(String name, int done, int total, double mbps) {
     if (!mounted || total <= 0) return;
+    final ratio = (done / total).clamp(0.0, 1.0);
     setState(() {
-      _ratio = done / total;
+      _ratio = ratio;
       _progress =
-          '$name ${(100 * _ratio!).toStringAsFixed(0)}% ${mbps.toStringAsFixed(1)} MB/s';
+          '$name ${(100 * ratio).toStringAsFixed(0)}% ${mbps.toStringAsFixed(1)} MB/s';
     });
   }
 

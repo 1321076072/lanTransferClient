@@ -77,6 +77,7 @@ class TransferReceiver {
     log('🟢 接收端监听 0.0.0.0:$port');
     _server!.listen((sock) async {
       try {
+        sock.setOption(SocketOption.tcpNoDelay, true);
         final r = await _handle(sock);
         if (r == _Result.skipped) {
           skipped++;
@@ -257,6 +258,13 @@ class TransferReceiver {
           lastLog = now;
           lastDone = received;
         }
+      }
+      // 收尾必报一次，否则最后半秒内完成会卡在 <100%。
+      if (received >= total && total > 0) {
+        final dt = DateTime.now().difference(lastLog).inMilliseconds / 1000.0;
+        final speed =
+            dt > 0 ? (received - lastDone) / dt / 1024 / 1024 : 0.0;
+        onProgress?.call(label, received, total, speed);
       }
       return received >= total;
     } finally {
